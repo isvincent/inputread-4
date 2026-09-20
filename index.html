@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>注音輸入唸讀機</title>
+<style>
+  /* 一個單位 u = 畫面寬度的 1%（16:9 時 = 高度的 1.778%），所有尺寸依此縮放，適合教室大型觸控螢幕 */
+  :root {
+    --z: 1;
+    --dev: 1; --base: min(1vw, 1.778vh);
+    --u: max(calc(var(--base) * var(--z) * var(--dev)), 6px);
+    color-scheme: light;
+    --bg: #f3efe4; --card: #ffffff; --ink: #161616; --muted: #3f3b34; --line: #8a8477;
+    --accent: #9a3412; --accent-ink: #ffffff; --focus: #1d4ed8; --focus2: #ffffff;
+    --k-init: #fde7c8; --k-init-b: #9a5a06;
+    --k-med: #cdeee9; --k-med-b: #0b6b62;
+    --k-fin: #d8e5fc; --k-fin-b: #1d4ed8;
+    --k-tone: #e8dcfa; --k-tone-b: #6d28d9;
+    --k-act: #e9e6dd; --k-act-b: #4a463e;
+    --err: #9b1c1c; --ok: #0b5d3b;
+  }
+  :root[data-layout="portrait"] { --base: min(2.2vw, 1.25vh); }
+  :root[data-device="phone"] { --dev: 1.3; }
+
+  /* 暗色：跟隨系統或手動選擇 */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #1b1a17; --card: #262521; --ink: #f2eee4; --muted: #d2ccbc; --line: #8f8a7d;
+    --accent: #f97316; --accent-ink: #1a1a1a; --focus: #7db4ff; --focus2: #000;
+    --k-init: #5a3a10; --k-init-b: #f0b35a;
+    --k-med: #0f4a44; --k-med-b: #4fd6c4;
+    --k-fin: #1e3a6e; --k-fin-b: #7fb0ff;
+    --k-tone: #45286f; --k-tone-b: #c3a4ff;
+    --k-act: #33312b; --k-act-b: #b8b2a2;
+    --err: #ff9a9a; --ok: #7dffb0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-theme="auto"] {
+      color-scheme: dark;
+      --bg: #1b1a17; --card: #262521; --ink: #f2eee4; --muted: #d2ccbc; --line: #8f8a7d;
+      --accent: #f97316; --accent-ink: #1a1a1a; --focus: #7db4ff; --focus2: #000;
+      --k-init: #5a3a10; --k-init-b: #f0b35a;
+      --k-med: #0f4a44; --k-med-b: #4fd6c4;
+      --k-fin: #1e3a6e; --k-fin-b: #7fb0ff;
+      --k-tone: #45286f; --k-tone-b: #c3a4ff;
+      --k-act: #33312b; --k-act-b: #b8b2a2;
+      --err: #ff9a9a; --ok: #7dffb0;
+    }
+  }
+
+  :root[data-contrast="high"] {
+    --bg: #000; --card: #000; --ink: #fff; --muted: #fff; --line: #fff;
+    --accent: #ffe600; --accent-ink: #000; --focus: #00e5ff; --focus2: #000;
+    --k-init: #000; --k-init-b: #ffb000;
+    --k-med: #000; --k-med-b: #00ffd0;
+    --k-fin: #000; --k-fin-b: #6cb6ff;
+    --k-tone: #000; --k-tone-b: #ff8cff;
+    --k-act: #000; --k-act-b: #fff;
+    --err: #ff8a8a; --ok: #7dffb0;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+    font-size: max(calc(var(--u) * 1.15), 16px); line-height: 1.5;
+    display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button, select, input { font: inherit; color: inherit; }
+  button { cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+  :focus { outline: none; }
+  :focus-visible { outline: calc(var(--u) * .3) solid var(--focus); outline-offset: calc(var(--u) * .15); box-shadow: 0 0 0 calc(var(--u) * .5) var(--focus2); position: relative; z-index: 2; }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .skip { position: absolute; left: 4px; top: -100px; background: var(--accent); color: var(--accent-ink); padding: .5em 1em; z-index: 10; border-radius: .4em; }
+  .skip:focus { top: 4px; left: 4px; }
+
+  /* 標題列 */
+  header.top { display: flex; align-items: center; gap: calc(var(--u) * 1.2); padding: calc(var(--u) * .55) calc(var(--u) * 2); border-bottom: 2px solid var(--line); flex-wrap: wrap; }
+  header.top h1 { font-size: calc(var(--u) * 2.2); margin: 0; line-height: 1.2; }
+  header.top .grow { flex: 1; }
+  .tbtn { min-height: calc(var(--u) * 3.1); min-width: calc(var(--u) * 3.1); padding: 0 calc(var(--u) * 1.2); border-radius: calc(var(--u) * .8); border: 2px solid var(--line); background: var(--card); }
+  .tbtn[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: calc(var(--u) * .8) calc(var(--u) * 2) calc(var(--u) * 1); gap: calc(var(--u) * .8); }
+
+  /* 上半部：輸入顯示 + 結果 */
+  .display { flex: 1; min-height: calc(var(--u) * 17); display: grid; grid-template-columns: minmax(0, 27fr) minmax(0, 73fr); gap: calc(var(--u) * 1.2); }
+  .panel { background: var(--card); border: 2px solid var(--line); border-radius: calc(var(--u) * 1); padding: calc(var(--u) * 1) calc(var(--u) * 1.2); min-height: 0; display: flex; flex-direction: column; }
+  .panel h2 { font-size: calc(var(--u) * 1.15); margin: 0 0 calc(var(--u) * .5); color: var(--muted); font-weight: 700; }
+
+  .buffer { display: flex; gap: calc(var(--u) * .6); align-items: center; flex-wrap: wrap; min-height: calc(var(--u) * 5.4); }
+  .sym { min-width: calc(var(--u) * 4.4); height: calc(var(--u) * 5.2); padding: 0 calc(var(--u) * .6); display: inline-flex; align-items: center; justify-content: center; font-size: calc(var(--u) * 3.2); border-radius: calc(var(--u) * .8); border: 3px solid; background: var(--card); }
+  .sym.i { border-color: var(--k-init-b); } .sym.m { border-color: var(--k-med-b); } .sym.f { border-color: var(--k-fin-b); }
+  .hint { color: var(--muted); font-size: calc(var(--u) * 1.15); }
+
+  .speech-mini { margin-top: auto; display: flex; flex-direction: column; gap: calc(var(--u) * .5); }
+  .status { min-height: 3em; color: var(--muted); font-size: calc(var(--u) * 1.1); line-height: 1.4; }
+  .status.warn { color: var(--err); font-weight: 700; }
+  .status.ok { color: var(--ok); }
+
+  .result { flex: 1; min-height: 0; overflow: auto; display: flex; flex-wrap: wrap; align-content: flex-start; gap: calc(var(--u) * .8); padding: calc(var(--u) * .3); }
+  .cell { display: flex; flex-direction: column; align-items: center; }
+  .cell .zy { font-size: calc(var(--u) * 1.35); color: var(--muted); white-space: nowrap; line-height: 1.2; }
+  .cell .ch { min-width: calc(var(--u) * 5.6); height: calc(var(--u) * 5.8); padding: 0 calc(var(--u) * .6); font-size: calc(var(--u) * 3.9); line-height: 1; background: var(--card); border: 3px solid var(--line); border-radius: calc(var(--u) * .9); }
+  .cell .ch[aria-expanded="true"] { border-color: var(--accent); background: var(--k-init); color: var(--ink); }
+  :root[data-contrast="high"] .cell .ch[aria-expanded="true"] { background: #000; border-color: var(--accent); }
+  .cell .ch.none { border-style: dashed; font-size: calc(var(--u) * 3); }
+  .cell.punct .ch { border: 0; min-width: calc(var(--u) * 3.2); cursor: default; }
+  .empty { color: var(--muted); align-self: center; padding: 0 calc(var(--u) * .5); }
+  .sentence { border-top: 2px dashed var(--line); margin-top: calc(var(--u) * .3); padding-top: calc(var(--u) * .3); font-size: calc(var(--u) * 2); min-height: 1.5em; word-break: break-all; }
+  .sentence span { font-size: calc(var(--u) * 1.1); color: var(--muted); margin-right: .6em; }
+
+  /* 選字列（固定高度，避免版面跳動） */
+  .cands { display: flex; align-items: center; gap: calc(var(--u) * .6); height: calc(var(--u) * 5.8); background: var(--card); border: 2px solid var(--line); border-radius: calc(var(--u) * 1); padding: 0 calc(var(--u) * 1.2); overflow-x: auto; white-space: nowrap; }
+  .cands .lab { color: var(--muted); font-size: calc(var(--u) * 1.15); flex: none; }
+  .cand { flex: none; min-width: calc(var(--u) * 4.6); height: calc(var(--u) * 4.4); font-size: calc(var(--u) * 2.8); background: var(--card); border: 3px solid var(--line); border-radius: calc(var(--u) * .8); }
+  .cand[aria-current="true"] { border-color: var(--accent); border-width: 4px; }
+  .cand.far { border-style: dashed; }
+  .cands .sep { flex: none; width: 2px; height: 60%; background: var(--line); margin: 0 calc(var(--u) * .4); }
+  .cands .close { flex: none; margin-left: auto; min-height: calc(var(--u) * 4.4); padding: 0 calc(var(--u) * 1.2); border-radius: calc(var(--u) * .8); border: 2px solid var(--line); background: var(--card); }
+
+  /* 注音鍵盤：依電腦鍵盤的標準注音排列（11 欄） */
+  .kbd { display: grid; grid-template-columns: repeat(11, 1fr); grid-auto-rows: calc(var(--u) * 4.3); gap: calc(var(--u) * .6); }
+  .key { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; background: var(--k-act); border: 3px solid var(--k-act-b); border-radius: calc(var(--u) * .9); box-shadow: 0 calc(var(--u) * .25) 0 var(--k-act-b); font-size: calc(var(--u) * 2.9); color: var(--ink); padding: 0; }
+  .key:active, .key.pressed { transform: translateY(calc(var(--u) * .2)); box-shadow: 0 calc(var(--u) * .05) 0 var(--k-act-b); }
+  .key.i { background: var(--k-init); border-color: var(--k-init-b); box-shadow: 0 calc(var(--u) * .25) 0 var(--k-init-b); }
+  .key.m { background: var(--k-med); border-color: var(--k-med-b); box-shadow: 0 calc(var(--u) * .25) 0 var(--k-med-b); }
+  .key.f { background: var(--k-fin); border-color: var(--k-fin-b); box-shadow: 0 calc(var(--u) * .25) 0 var(--k-fin-b); }
+  .key.t { background: var(--k-tone); border-color: var(--k-tone-b); box-shadow: 0 calc(var(--u) * .25) 0 var(--k-tone-b); }
+  .key[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+  .key .sub { font-size: calc(var(--u) * 1.05); margin-top: calc(var(--u) * .15); }
+  .key .pc { position: absolute; right: calc(var(--u) * .5); bottom: calc(var(--u) * .25); font-size: calc(var(--u) * .95); font-family: ui-monospace, Consolas, monospace; opacity: .85; }
+  .key.act { font-size: calc(var(--u) * 1.8); font-weight: 700; }
+  .key.act .big { font-size: calc(var(--u) * 2.2); }
+  .key.speak { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); box-shadow: 0 calc(var(--u) * .25) 0 rgba(0,0,0,.45); }
+  .key:disabled { opacity: .5; cursor: not-allowed; }
+  .key.space { font-size: calc(var(--u) * 1.8); font-weight: 700; }
+
+  .legend { display: flex; gap: calc(var(--u) * 1.4); flex-wrap: wrap; font-size: calc(var(--u) * 1); color: var(--muted); align-items: center; }
+  .legend i { display: inline-block; width: calc(var(--u) * 1.4); height: calc(var(--u) * 1.4); border: 3px solid; border-radius: 4px; vertical-align: -.2em; margin-right: .3em; }
+
+  /* 設定面板 */
+  .examples { display: flex; gap: calc(var(--u) * .6); flex-wrap: wrap; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  @media (forced-colors: active) { .key, .cell .ch, .cand { border: 2px solid ButtonText; } .key[aria-pressed="true"] { forced-color-adjust: none; background: Highlight; color: HighlightText; } }
+
+  :root[data-layout="portrait"] .display { grid-template-columns: 1fr; min-height: calc(var(--u) * 34); }
+  :root[data-layout="portrait"] .panel:last-child { min-height: calc(var(--u) * 16); }
+  :root[data-device="phone"] .pc, :root[data-device="tablet"] .pc { display: none; }
+  :root[data-device="phone"] .key:not(.act):not(.space) { font-size: calc(var(--u) * 2.3); }
+  :root[data-device="phone"] header .hint.grow { display: none; }
+  :root[data-device="phone"] header.top h1 { font-size: calc(var(--u) * 1.8); }
+
+  /* 設定對話框 */
+  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; }
+  .backdrop[hidden] { display: none; }
+  .settings { position: fixed; z-index: 21; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(94vw, calc(var(--u) * 78)); max-height: 92vh; max-height: 92dvh; overflow-y: auto; background: var(--card); color: var(--ink); border: 3px solid var(--line); border-radius: calc(var(--u) * 1.2); padding: calc(var(--u) * 1.4); box-shadow: 0 12px 48px rgba(0,0,0,.5); }
+  .settings[hidden] { display: none; }
+  .set-head { display: flex; justify-content: space-between; align-items: center; gap: 1em; margin-bottom: calc(var(--u) * 1); }
+  .set-head h2 { margin: 0; font-size: calc(var(--u) * 2); }
+  .set-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--u) * 24)), 1fr)); gap: calc(var(--u) * 1.2); }
+  .settings fieldset { border: 2px solid var(--line); border-radius: calc(var(--u) * .9); margin: 0; padding: calc(var(--u) * .6) calc(var(--u) * 1) calc(var(--u) * 1); min-width: 0; }
+  .settings legend { font-weight: 700; padding: 0 .4em; font-size: calc(var(--u) * 1.4); }
+  .settings .note { color: var(--muted); font-size: calc(var(--u) * 1); margin: calc(var(--u) * .5) 0 0; }
+  .seg { display: flex; gap: calc(var(--u) * .5); flex-wrap: wrap; }
+  .seg label { position: relative; flex: 1 1 auto; }
+  .seg input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .seg span { display: flex; align-items: center; justify-content: center; text-align: center; min-height: calc(var(--u) * 3.6); padding: 0 calc(var(--u) * 1); border: 2px solid var(--line); border-radius: calc(var(--u) * .7); background: var(--card); font-size: calc(var(--u) * 1.3); }
+  .seg input:checked + span { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 700; }
+  .seg input:checked + span::before { content: "✓ "; white-space: pre; }
+  .seg input:focus-visible + span { outline: calc(var(--u) * .3) solid var(--focus); outline-offset: calc(var(--u) * .15); box-shadow: 0 0 0 calc(var(--u) * .5) var(--focus2); }
+  .seg input:disabled + span { opacity: .5; }
+  .settings .voice-row { display: grid; grid-template-columns: 1fr; gap: calc(var(--u) * .5); }
+  .settings label.lb { display: block; font-size: calc(var(--u) * 1.15); }
+  .settings select { width: 100%; min-height: calc(var(--u) * 3.6); background: var(--card); border: 2px solid var(--line); border-radius: calc(var(--u) * .6); padding: 0 .5em; }
+  .settings input[type=range] { width: 100%; height: calc(var(--u) * 3); accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<a class="skip" href="#keyboard" data-i18n="skipKb"></a>
+<a class="skip" href="#result-h" data-i18n="skipRes"></a>
+
+<header class="top">
+  <h1 data-i18n="title"></h1>
+  <p class="hint grow" style="margin:0" data-i18n="hint"></p>
+  <div class="examples" role="group" data-i18n-label="exLabel" id="examples"></div>
+  <button class="tbtn" id="b-settings" aria-haspopup="dialog" aria-expanded="false" aria-controls="settings" data-i18n="btnSettings"></button>
+</header>
+
+<div class="backdrop" id="backdrop" hidden></div>
+<div class="settings" id="settings" role="dialog" aria-modal="true" aria-labelledby="set-h" hidden>
+  <div class="set-head">
+    <h2 id="set-h" data-i18n="setTitle"></h2>
+    <button class="tbtn" id="b-close-settings" data-i18n="close"></button>
+  </div>
+  <div class="set-groups" id="set-groups"></div>
+  <fieldset style="margin-top: calc(var(--u) * 1.2)" class="voice-set">
+    <legend data-i18n="voiceSec"></legend>
+    <div class="voice-row">
+      <label class="lb" for="voice" data-i18n="voice"></label><select id="voice"></select>
+      <label class="lb" for="rate"><span data-i18n="rate"></span>：<span id="rate-v">0.9</span></label><input type="range" id="rate" min="0.5" max="1.5" step="0.1" value="0.9">
+      <label class="lb" for="pitch"><span data-i18n="pitch"></span>：<span id="pitch-v">1.0</span></label><input type="range" id="pitch" min="0.5" max="1.5" step="0.1" value="1">
+      <div><button class="tbtn" id="b-test" data-i18n="test"></button></div>
+    </div>
+  </fieldset>
+</div>
+
+<main id="main">
+  <div class="sr-only" id="live" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  <div class="display">
+    <section class="panel" aria-labelledby="buf-h">
+      <h2 id="buf-h" data-i18n="bufTitle"></h2>
+      <div class="buffer" id="buffer"></div>
+      <div class="speech-mini">
+        <div class="status" id="status" role="status"></div>
+        <div class="legend" aria-hidden="true">
+          <span><i style="border-color:var(--k-init-b);background:var(--k-init)"></i><span data-i18n="catI"></span></span>
+          <span><i style="border-color:var(--k-med-b);background:var(--k-med)"></i><span data-i18n="catM"></span></span>
+          <span><i style="border-color:var(--k-fin-b);background:var(--k-fin)"></i><span data-i18n="catF"></span></span>
+          <span><i style="border-color:var(--k-tone-b);background:var(--k-tone)"></i><span data-i18n="catT"></span></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="result-h">
+      <h2 id="result-h" data-i18n="resTitle"></h2>
+      <div class="result" id="result" role="group" data-i18n-label="resGroup" tabindex="-1"></div>
+      <div class="sentence" id="sentence"></div>
+    </section>
+  </div>
+
+  <div class="cands" id="cands" role="group" data-i18n-label="candsGroup"></div>
+
+  <div id="keyboard" tabindex="-1" role="group" data-i18n-label="kbdLabel">
+    <div class="kbd" id="kbd"></div>
+  </div>
+</main>
+
+<script>
+/* ───────── 字典：音節(含聲調) → 國字，越前面越常用 ───────── */
+/* 聲調寫法：一聲不加符號，ˊ ˇ ˋ 放後面，輕聲 ˙ 放最前面 */
+const CHAR_DATA = `
+ㄅㄚ 八巴
+ㄅㄚˊ 拔
+ㄅㄚˇ 把
+ㄅㄚˋ 爸壩罷
+˙ㄅㄚ 吧爸
+ㄅㄞˊ 白
+ㄅㄞˇ 百擺
+ㄅㄞˋ 拜敗
+ㄅㄢ 班般搬
+ㄅㄢˇ 版板
+ㄅㄢˋ 半辦伴
+ㄅㄤ 幫
+ㄅㄤˇ 綁
+ㄅㄤˋ 棒磅
+ㄅㄠ 包
+ㄅㄠˇ 保寶飽
+ㄅㄠˋ 報抱爆
+ㄅㄟ 杯悲
+ㄅㄟˇ 北
+ㄅㄟˋ 被背備
+ㄅㄣˇ 本
+ㄅㄣˋ 笨
+ㄅㄥ 崩
+ㄅㄧ 逼
+ㄅㄧˊ 鼻
+ㄅㄧˇ 比筆
+ㄅㄧˋ 必畢閉壁
+ㄅㄧㄢ 邊編
+ㄅㄧㄢˇ 扁
+ㄅㄧㄢˋ 變便遍
+ㄅㄧㄠ 標
+ㄅㄧㄠˇ 表
+ㄅㄧㄝˊ 別
+ㄅㄧㄣ 賓濱
+ㄅㄧㄥ 冰兵
+ㄅㄧㄥˇ 餅
+ㄅㄧㄥˋ 病並
+ㄅㄨˋ 不步部布
+ㄅㄨˇ 補捕
+ㄅㄨˊ 餔
+ㄅㄛ 波播
+ㄅㄛˊ 伯博薄
+ㄆㄚ 趴
+ㄆㄚˊ 爬
+ㄆㄚˋ 怕
+ㄆㄞ 拍
+ㄆㄞˊ 排牌
+ㄆㄞˋ 派
+ㄆㄢ 攀
+ㄆㄢˊ 盤
+ㄆㄢˋ 判叛
+ㄆㄤˊ 旁
+ㄆㄤˋ 胖
+ㄆㄠ 拋
+ㄆㄠˊ 袍
+ㄆㄠˇ 跑
+ㄆㄟˊ 陪賠
+ㄆㄟˋ 配
+ㄆㄣ 噴
+ㄆㄣˊ 盆
+ㄆㄥˊ 朋鵬
+ㄆㄥˇ 捧
+ㄆㄥˋ 碰
+ㄆㄧ 批披
+ㄆㄧˊ 皮疲
+ㄆㄧˇ 匹
+ㄆㄧˋ 屁
+ㄆㄧㄢ 偏篇
+ㄆㄧㄢˊ 便
+ㄆㄧㄢˋ 片
+ㄆㄧㄠ 飄
+ㄆㄧㄠˋ 票漂
+ㄆㄧㄣˊ 貧
+ㄆㄧㄣˇ 品
+ㄆㄧㄥˊ 平瓶評
+ㄆㄨ 撲鋪
+ㄆㄨˊ 蒲
+ㄆㄨˇ 普譜
+ㄆㄛ 坡潑
+ㄆㄛˊ 婆
+ㄆㄛˋ 破
+ㄇㄚ 媽
+ㄇㄚˊ 麻
+ㄇㄚˇ 馬碼
+ㄇㄚˋ 罵
+˙ㄇㄚ 嗎媽麼
+ㄇㄞˇ 買
+ㄇㄞˋ 賣邁
+ㄇㄢˊ 瞞
+ㄇㄢˇ 滿
+ㄇㄢˋ 慢漫
+ㄇㄤˊ 忙盲
+ㄇㄠ 貓
+ㄇㄠˊ 毛
+ㄇㄠˋ 帽貌冒
+ㄇㄟˊ 沒眉媒
+ㄇㄟˇ 美每
+ㄇㄟˋ 妹
+˙ㄇㄟ 妹
+ㄇㄣˊ 門
+˙ㄇㄣ 們
+ㄇㄥˊ 盟
+ㄇㄥˋ 夢
+ㄇㄧˊ 迷
+ㄇㄧˇ 米
+ㄇㄧˋ 密秘
+ㄇㄧㄢˊ 眠
+ㄇㄧㄢˇ 免
+ㄇㄧㄢˋ 面
+ㄇㄧㄠˊ 苗
+ㄇㄧㄠˇ 秒
+ㄇㄧㄠˋ 妙
+ㄇㄧㄣˊ 民
+ㄇㄧㄥˊ 明名
+ㄇㄧㄥˋ 命
+ㄇㄨˇ 母
+ㄇㄨˋ 木目
+ㄇㄛˊ 磨
+ㄇㄛˋ 末
+˙ㄇㄛ 麼
+˙ㄇㄜ 麼
+ㄇㄡˊ 謀
+ㄈㄚ 發
+ㄈㄚˊ 罰
+ㄈㄚˇ 法
+ㄈㄢ 翻
+ㄈㄢˊ 煩
+ㄈㄢˇ 反
+ㄈㄢˋ 飯犯
+ㄈㄤ 方芳
+ㄈㄤˊ 房防
+ㄈㄤˇ 訪
+ㄈㄤˋ 放
+ㄈㄟ 飛非
+ㄈㄟˊ 肥
+ㄈㄟˋ 費
+ㄈㄣ 分
+ㄈㄣˊ 墳
+ㄈㄣˋ 份
+ㄈㄥ 風封
+ㄈㄥˊ 逢
+ㄈㄥˋ 奉
+ㄈㄨ 夫
+ㄈㄨˊ 福服符
+ㄈㄨˇ 府
+ㄈㄨˋ 父付副
+ㄈㄛˊ 佛
+ㄈㄡˇ 否
+ㄉㄚ 搭
+ㄉㄚˊ 答
+ㄉㄚˇ 打
+ㄉㄚˋ 大
+ㄉㄞ 呆
+ㄉㄞˇ 歹
+ㄉㄞˋ 帶待代
+ㄉㄢ 單
+ㄉㄢˇ 膽
+ㄉㄢˋ 蛋但
+ㄉㄤ 當
+ㄉㄤˇ 擋
+ㄉㄠ 刀
+ㄉㄠˇ 島倒
+ㄉㄠˋ 到道
+ㄉㄜˊ 得德
+˙ㄉㄜ 的得地
+ㄉㄟˇ 得
+ㄉㄥ 燈
+ㄉㄥˇ 等
+ㄉㄥˋ 凳
+ㄉㄧ 低滴
+ㄉㄧˊ 敵的
+ㄉㄧˇ 底
+ㄉㄧˋ 地弟第
+˙ㄉㄧ 弟
+ㄉㄧㄝ 爹
+ㄉㄧㄝˊ 蝶
+ㄉㄧㄢ 顛
+ㄉㄧㄢˇ 點
+ㄉㄧㄢˋ 店電
+ㄉㄧㄠ 雕
+ㄉㄧㄠˋ 掉釣
+ㄉㄧㄥ 丁
+ㄉㄧㄥˋ 定訂
+ㄉㄧㄡ 丟
+ㄉㄨ 都督
+ㄉㄨˊ 讀毒
+ㄉㄨˇ 肚
+ㄉㄨˋ 度肚
+ㄉㄨㄛ 多
+ㄉㄨㄛˊ 奪
+ㄉㄨㄛˇ 朵
+ㄉㄨㄢ 端
+ㄉㄨㄢˇ 短
+ㄉㄨㄢˋ 段斷
+ㄉㄨㄟ 堆
+ㄉㄨㄟˋ 對隊
+ㄉㄨㄣ 敦
+ㄉㄨㄣˋ 頓
+ㄉㄨㄥ 東冬
+ㄉㄨㄥˇ 懂
+ㄉㄨㄥˋ 動洞
+ㄉㄡ 都兜
+ㄉㄡˇ 斗
+ㄉㄡˋ 豆
+ㄊㄚ 他她它
+ㄊㄚˋ 踏
+ㄊㄞ 胎
+ㄊㄞˊ 台
+ㄊㄞˋ 太泰態
+ㄊㄢ 攤
+ㄊㄢˊ 談
+ㄊㄢˇ 毯
+ㄊㄢˋ 嘆探
+ㄊㄤ 湯
+ㄊㄤˊ 糖堂唐
+ㄊㄤˇ 躺
+ㄊㄤˋ 燙趟
+ㄊㄠ 濤
+ㄊㄠˊ 桃逃
+ㄊㄠˇ 討
+ㄊㄠˋ 套
+ㄊㄜˋ 特
+ㄊㄥˊ 疼騰
+ㄊㄧ 踢梯
+ㄊㄧˊ 提題
+ㄊㄧˇ 體
+ㄊㄧˋ 替
+ㄊㄧㄝ 貼
+ㄊㄧㄝˇ 鐵
+ㄊㄧㄢ 天
+ㄊㄧㄢˊ 田甜
+ㄊㄧㄠ 挑
+ㄊㄧㄠˊ 條
+ㄊㄧㄠˋ 跳
+ㄊㄧㄥ 聽
+ㄊㄧㄥˊ 停
+ㄊㄧㄥˇ 挺
+ㄊㄨ 禿突
+ㄊㄨˊ 圖塗
+ㄊㄨˇ 土
+ㄊㄨˋ 兔
+ㄊㄨㄛ 拖
+ㄊㄨㄛˇ 妥
+ㄊㄨㄢˊ 團
+ㄊㄨㄟ 推
+ㄊㄨㄟˇ 腿
+ㄊㄨㄟˋ 退
+ㄊㄨㄥ 通
+ㄊㄨㄥˊ 同童
+ㄊㄨㄥˇ 統
+ㄊㄨㄥˋ 痛
+ㄊㄡ 偷
+ㄊㄡˊ 頭投
+ㄊㄡˋ 透
+˙ㄊㄡ 頭
+ㄋㄚˊ 拿
+ㄋㄚˇ 哪
+ㄋㄚˋ 那
+˙ㄋㄜ 呢
+ㄋㄞˇ 奶
+ㄋㄞˋ 耐
+ㄋㄢˊ 南難
+ㄋㄢˋ 難
+ㄋㄠˇ 腦
+ㄋㄠˋ 鬧
+ㄋㄟˋ 內
+ㄋㄥˊ 能
+ㄋㄧˊ 泥
+ㄋㄧˇ 你
+ㄋㄧˋ 逆
+ㄋㄧㄢˊ 年
+ㄋㄧㄢˋ 念
+ㄋㄧㄤˊ 娘
+ㄋㄧㄠˇ 鳥
+ㄋㄧㄡˊ 牛
+ㄋㄧㄥˊ 寧
+ㄋㄩˇ 女
+ㄋㄨˊ 奴
+ㄋㄨˇ 努
+ㄋㄨㄥˊ 農
+ㄋㄨㄥˋ 弄
+ㄌㄚ 拉
+ㄌㄚˋ 辣
+˙ㄌㄚ 啦
+ㄌㄞˊ 來
+ㄌㄞˋ 賴
+ㄌㄢˊ 藍
+ㄌㄢˇ 懶
+ㄌㄢˋ 爛
+ㄌㄤˊ 狼
+ㄌㄤˋ 浪
+ㄌㄠˊ 勞牢
+ㄌㄠˇ 老
+ㄌㄜˋ 樂勒
+˙ㄌㄜ 了
+ㄌㄟˇ 壘
+ㄌㄟˋ 累淚類
+ㄌㄥˇ 冷
+ㄌㄧˊ 離黎
+ㄌㄧˇ 裡里理
+ㄌㄧˋ 力立利
+˙ㄌㄧ 裡
+ㄌㄧㄝˋ 列
+ㄌㄧㄢˊ 連
+ㄌㄧㄢˋ 練戀
+ㄌㄧㄤˊ 涼
+ㄌㄧㄤˇ 兩
+ㄌㄧㄤˋ 亮
+ㄌㄧㄠˇ 了
+ㄌㄧㄠˋ 料
+ㄌㄧㄣˊ 林
+ㄌㄧㄥˊ 零靈
+ㄌㄧㄥˇ 領
+ㄌㄧㄥˋ 令
+ㄌㄧㄡˊ 流留
+ㄌㄧㄡˋ 六
+ㄌㄨ 嚕
+ㄌㄨˊ 爐
+ㄌㄨˋ 路
+ㄌㄨㄛˊ 羅
+ㄌㄨㄛˋ 落
+ㄌㄨㄢˋ 亂
+ㄌㄨㄣˊ 輪論
+ㄌㄨㄥˊ 龍
+ㄌㄡˊ 樓
+ㄌㄡˋ 漏
+ㄌㄩˇ 旅
+ㄌㄩˋ 綠律
+ㄌㄩㄝˋ 略
+ㄍㄞ 該
+ㄍㄞˇ 改
+ㄍㄞˋ 蓋
+ㄍㄢ 乾甘
+ㄍㄢˇ 趕敢感
+ㄍㄢˋ 幹
+ㄍㄤ 剛鋼
+ㄍㄤˇ 港
+ㄍㄠ 高
+ㄍㄠˇ 搞稿
+ㄍㄠˋ 告
+ㄍㄜ 哥歌
+ㄍㄜˊ 格革
+ㄍㄜˋ 個各
+˙ㄍㄜ 哥個
+ㄍㄟˇ 給
+ㄍㄣ 跟
+ㄍㄥ 更
+ㄍㄥˋ 更
+ㄍㄨ 姑
+ㄍㄨˇ 古股
+ㄍㄨˋ 故顧固
+ㄍㄨㄚ 瓜
+ㄍㄨㄚˇ 寡
+ㄍㄨㄛˊ 國
+ㄍㄨㄛˇ 果
+ㄍㄨㄛˋ 過
+ㄍㄨㄞ 乖
+ㄍㄨㄞˋ 怪
+ㄍㄨㄢ 關官
+ㄍㄨㄢˇ 管館
+ㄍㄨㄢˋ 觀慣
+ㄍㄨㄤ 光
+ㄍㄨㄤˇ 廣
+ㄍㄨㄤˋ 逛
+ㄍㄨㄟ 規
+ㄍㄨㄟˋ 貴跪
+ㄍㄨㄣˇ 滾
+ㄍㄨㄥ 工公功
+ㄍㄨㄥˇ 弓
+ㄍㄨㄥˋ 共
+ㄍㄡˇ 狗
+ㄍㄡˋ 夠
+ㄎㄚ 卡
+ㄎㄚˇ 卡
+ㄎㄞ 開
+ㄎㄞˇ 凱
+ㄎㄢ 看
+ㄎㄢˇ 砍
+ㄎㄢˋ 看
+ㄎㄤˋ 抗
+ㄎㄠˇ 考
+ㄎㄠˋ 靠
+ㄎㄜ 科
+ㄎㄜˊ 咳
+ㄎㄜˇ 可
+ㄎㄜˋ 課刻客
+ㄎㄥˇ 肯
+ㄎㄨ 哭
+ㄎㄨˇ 苦
+ㄎㄨˋ 酷
+ㄎㄨㄚ 誇
+ㄎㄨㄞˋ 快
+ㄎㄨㄢ 寬
+ㄎㄨㄤˊ 狂
+ㄎㄨㄤˋ 況
+ㄎㄨㄟ 虧
+ㄎㄨㄣˋ 困
+ㄎㄨㄥ 空
+ㄎㄨㄥˇ 恐
+ㄎㄨㄥˋ 空控
+ㄎㄡˇ 口
+ㄎㄡˋ 扣
+ㄏㄚ 哈
+ㄏㄞ 嗨還
+ㄏㄞˊ 孩還
+ㄏㄞˇ 海
+ㄏㄞˋ 害
+ㄏㄢˊ 寒
+ㄏㄢˇ 喊
+ㄏㄢˋ 漢汗
+ㄏㄤˊ 航行
+ㄏㄤˋ 巷
+ㄏㄠ 嚎
+ㄏㄠˊ 毫
+ㄏㄠˇ 好
+ㄏㄠˋ 號
+ㄏㄜ 喝
+ㄏㄜˊ 和合河
+ㄏㄜˋ 賀
+ㄏㄟ 黑
+ㄏㄣˇ 很
+ㄏㄣˋ 恨
+ㄏㄥˊ 恆橫
+ㄏㄨ 呼
+ㄏㄨˊ 湖壺
+ㄏㄨˇ 虎
+ㄏㄨˋ 護戶
+ㄏㄨㄚ 花
+ㄏㄨㄚˊ 華
+ㄏㄨㄚˋ 話畫化
+ㄏㄨㄛˊ 活
+ㄏㄨㄛˇ 火
+ㄏㄨㄛˋ 貨或
+ㄏㄨㄞˊ 懷
+ㄏㄨㄞˋ 壞
+ㄏㄨㄢ 歡
+ㄏㄨㄢˊ 環
+ㄏㄨㄢˋ 換
+ㄏㄨㄤ 慌
+ㄏㄨㄤˊ 黃
+ㄏㄨㄟ 灰
+ㄏㄨㄟˊ 回
+ㄏㄨㄟˇ 悔
+ㄏㄨㄟˋ 會
+ㄏㄨㄣ 昏
+ㄏㄨㄥ 轟
+ㄏㄨㄥˊ 紅
+ㄏㄡˊ 猴
+ㄏㄡˋ 後厚
+ㄐㄧ 雞機基
+ㄐㄧˊ 急極集
+ㄐㄧˇ 幾己
+ㄐㄧˋ 記寄季繼
+ㄐㄧㄚ 家加
+ㄐㄧㄚˇ 假甲
+ㄐㄧㄚˋ 價架
+ㄐㄧㄢ 間堅
+ㄐㄧㄢˇ 減簡檢
+ㄐㄧㄢˋ 見件建健
+ㄐㄧㄤ 江將
+ㄐㄧㄤˇ 講獎
+ㄐㄧㄤˋ 醬降
+ㄐㄧㄠ 教交腳
+ㄐㄧㄠˇ 腳角餃
+ㄐㄧㄠˋ 叫較覺
+ㄐㄧㄝ 街接階
+ㄐㄧㄝˊ 節結截
+ㄐㄧㄝˇ 姐解
+ㄐㄧㄝˋ 借戒介界
+˙ㄐㄧㄝ 姐
+ㄐㄧㄣ 今金斤
+ㄐㄧㄣˇ 緊僅
+ㄐㄧㄣˋ 進近
+ㄐㄧㄥ 經京睛
+ㄐㄧㄥˇ 景井
+ㄐㄧㄥˋ 靜敬淨
+ㄐㄧㄡ 究
+ㄐㄧㄡˇ 九久酒
+ㄐㄧㄡˋ 就舊救
+ㄐㄩ 居
+ㄐㄩˊ 局菊
+ㄐㄩˇ 舉
+ㄐㄩˋ 句巨具
+ㄐㄩㄝˊ 覺決
+ㄐㄩㄢ 捐
+ㄐㄩㄢˋ 卷
+ㄐㄩㄣ 軍君
+ㄑㄧ 七妻期
+ㄑㄧˊ 其奇騎旗
+ㄑㄧˇ 起企
+ㄑㄧˋ 氣汽
+ㄑㄧㄚˋ 恰
+ㄑㄧㄢ 千牽
+ㄑㄧㄢˊ 前錢
+ㄑㄧㄢˇ 淺
+ㄑㄧㄢˋ 欠
+ㄑㄧㄤ 槍
+ㄑㄧㄤˊ 牆強
+ㄑㄧㄤˇ 搶
+ㄑㄧㄠ 敲
+ㄑㄧㄠˊ 橋
+ㄑㄧㄠˇ 巧
+ㄑㄧㄠˋ 俏
+ㄑㄧㄝ 切
+ㄑㄧㄝˋ 怯
+ㄑㄧㄣ 親
+ㄑㄧㄣˊ 琴勤
+ㄑㄧㄣˇ 寢
+ㄑㄧㄥ 清青輕
+ㄑㄧㄥˊ 情晴
+ㄑㄧㄥˇ 請
+ㄑㄧㄥˋ 慶
+ㄑㄧㄡ 秋
+ㄑㄧㄡˊ 球求
+ㄑㄩ 區
+ㄑㄩˊ 渠
+ㄑㄩˋ 去趣
+ㄑㄩㄝ 缺
+ㄑㄩㄝˋ 確卻
+ㄑㄩㄢ 圈
+ㄑㄩㄢˊ 全拳
+ㄑㄩㄣˊ 群
+ㄒㄧ 西希息
+ㄒㄧˊ 習席
+ㄒㄧˇ 洗喜
+ㄒㄧˋ 系細戲係
+ㄒㄧㄚ 蝦
+ㄒㄧㄚˋ 下夏嚇
+ㄒㄧㄢ 先鮮
+ㄒㄧㄢˊ 閒鹹賢
+ㄒㄧㄢˇ 顯險
+ㄒㄧㄢˋ 現線限
+ㄒㄧㄤ 香相
+ㄒㄧㄤˊ 祥
+ㄒㄧㄤˇ 想響
+ㄒㄧㄤˋ 象向像
+ㄒㄧㄠ 消宵
+ㄒㄧㄠˇ 小
+ㄒㄧㄠˋ 笑校孝
+ㄒㄧㄝ 些
+ㄒㄧㄝˊ 鞋協
+ㄒㄧㄝˇ 寫
+ㄒㄧㄝˋ 謝
+ㄒㄧㄣ 心新
+ㄒㄧㄣˋ 信
+ㄒㄧㄥ 星興
+ㄒㄧㄥˊ 行形
+ㄒㄧㄥˇ 醒
+ㄒㄧㄥˋ 姓性幸
+ㄒㄧㄡ 休修
+ㄒㄧㄡˋ 秀
+ㄒㄩ 需虛
+ㄒㄩˊ 徐
+ㄒㄩˇ 許
+ㄒㄩˋ 續序
+ㄒㄩㄝˊ 學
+ㄒㄩㄝˇ 雪
+ㄒㄩㄢ 宣
+ㄒㄩㄢˊ 旋
+ㄒㄩㄢˇ 選
+ㄒㄩㄢˋ 炫
+ㄒㄩㄣˊ 尋
+ㄒㄩㄣˋ 訓迅
+ㄓ 之知
+ㄓˊ 直值
+ㄓˇ 只紙指
+ㄓˋ 至志治質
+ㄓㄚ 渣
+ㄓㄚˋ 炸
+ㄓㄜ 遮
+ㄓㄜˊ 摺
+ㄓㄜˇ 者
+ㄓㄜˋ 這
+ㄓㄞ 摘
+ㄓㄞˋ 債
+ㄓㄢ 沾
+ㄓㄢˇ 展
+ㄓㄢˋ 站戰
+ㄓㄤ 張
+ㄓㄤˇ 長
+ㄓㄤˋ 帳
+ㄓㄠ 招
+ㄓㄠˇ 找
+ㄓㄠˋ 照
+ㄓㄡ 周州週
+ㄓㄣ 真
+ㄓㄣˇ 枕
+ㄓㄣˋ 鎮
+ㄓㄥ 正爭
+ㄓㄥˇ 整
+ㄓㄥˋ 正政證
+ㄓㄨ 豬
+ㄓㄨˊ 竹
+ㄓㄨˇ 主
+ㄓㄨˋ 住注
+ㄓㄨㄚ 抓
+ㄓㄨㄛ 桌捉
+ㄓㄨㄢ 專
+ㄓㄨㄢˇ 轉
+ㄓㄨㄢˋ 賺轉
+ㄓㄨㄤ 裝
+ㄓㄨㄤˋ 狀
+ㄓㄨㄟ 追
+ㄓㄨㄟˋ 墜
+ㄓㄨㄣˇ 準
+ㄓㄨㄥ 中終
+ㄓㄨㄥˇ 種
+ㄓㄨㄥˋ 重
+ㄔ 吃
+ㄔˊ 遲持
+ㄔˇ 尺
+ㄔˋ 赤
+ㄔㄚ 差插
+ㄔㄚˊ 茶查
+ㄔㄚˋ 差
+ㄔㄜ 車
+ㄔㄜˋ 撤
+ㄔㄞ 拆
+ㄔㄞˊ 柴
+ㄔㄢ 摻
+ㄔㄢˊ 蟬
+ㄔㄢˇ 產
+ㄔㄤ 昌
+ㄔㄤˊ 長常嚐
+ㄔㄤˇ 場廠
+ㄔㄤˋ 唱
+ㄔㄠ 超
+ㄔㄠˊ 潮
+ㄔㄠˇ 吵
+ㄔㄣˊ 陳沉
+ㄔㄣˋ 趁
+ㄔㄥ 撐
+ㄔㄥˊ 成城程
+ㄔㄥˋ 秤
+ㄔㄨ 出
+ㄔㄨˊ 除
+ㄔㄨˇ 楚處
+ㄔㄨˋ 處
+ㄔㄨㄢ 穿
+ㄔㄨㄢˊ 船傳
+ㄔㄨㄢˋ 串
+ㄔㄨㄤ 窗
+ㄔㄨㄤˊ 床
+ㄔㄨㄤˋ 創
+ㄔㄨㄟ 吹
+ㄔㄨㄟˊ 垂
+ㄔㄨㄣ 春
+ㄔㄨㄣˊ 純
+ㄔㄨㄥ 沖
+ㄔㄨㄥˊ 蟲
+ㄔㄨㄥˇ 寵
+ㄔㄡ 抽
+ㄔㄡˊ 愁
+ㄔㄡˋ 臭
+ㄕ 師詩
+ㄕˊ 十時食石實
+ㄕˇ 使史始
+ㄕˋ 是事市室世
+˙ㄕ 事
+ㄕㄚ 沙
+ㄕㄚˇ 傻
+ㄕㄜ 奢
+ㄕㄜˊ 蛇
+ㄕㄜˋ 設社
+ㄕㄞ 篩
+ㄕㄢ 山衫
+ㄕㄢˇ 閃
+ㄕㄢˋ 善扇
+ㄕㄤ 商傷
+ㄕㄤˇ 賞
+ㄕㄤˋ 上尚
+ㄕㄠ 燒
+ㄕㄠˊ 勺
+ㄕㄠˇ 少
+ㄕㄠˋ 紹
+ㄕㄟˊ 誰
+ㄕㄣ 身深
+ㄕㄣˊ 神什
+ㄕㄣˇ 審
+ㄕㄣˋ 慎
+ㄕㄥ 生聲
+ㄕㄥˊ 繩
+ㄕㄥˇ 省
+ㄕㄥˋ 勝聖
+˙ㄕㄥ 生
+ㄕㄡ 收
+ㄕㄡˇ 手守首
+ㄕㄡˋ 受瘦
+ㄕㄨ 書叔
+ㄕㄨˊ 熟
+ㄕㄨˇ 數鼠
+ㄕㄨˋ 樹數術
+ㄕㄨㄚ 刷
+ㄕㄨㄚˇ 耍
+ㄕㄨㄛ 說碩
+ㄕㄨㄞ 摔
+ㄕㄨㄞˋ 帥
+ㄕㄨㄟˊ 誰
+ㄕㄨㄟˇ 水
+ㄕㄨㄟˋ 睡
+ㄕㄨㄣˋ 順
+ㄕㄨㄤ 雙
+ㄕㄨㄤˇ 爽
+ㄖˋ 日
+ㄖㄜˋ 熱
+ㄖㄢˊ 然
+ㄖㄢˇ 染
+ㄖㄤˋ 讓
+ㄖㄠˊ 饒
+ㄖㄠˋ 繞
+ㄖㄣˊ 人
+ㄖㄣˋ 認任
+ㄖㄥˊ 仍
+ㄖㄨˊ 如
+ㄖㄨˋ 入
+ㄖㄨㄛˋ 弱
+ㄖㄨㄥˊ 容
+ㄖㄡˋ 肉
+ㄗ 資
+ㄗˇ 子紫
+ㄗˋ 字自
+˙ㄗ 子
+ㄗㄚˊ 雜
+ㄗㄜˊ 則責
+ㄗㄞ 災
+ㄗㄞˇ 宰
+ㄗㄞˋ 在再
+ㄗㄢˋ 讚
+ㄗㄤ 髒
+ㄗㄠ 遭
+ㄗㄠˇ 早
+ㄗㄠˋ 造
+ㄗㄟˊ 賊
+ㄗㄣˇ 怎
+ㄗㄥ 增
+ㄗㄨ 租
+ㄗㄨˊ 族足
+ㄗㄨˇ 祖組
+ㄗㄨㄛˊ 昨
+ㄗㄨㄛˇ 左
+ㄗㄨㄛˋ 做作坐座
+ㄗㄨㄢ 鑽
+ㄗㄨㄟˇ 嘴
+ㄗㄨㄟˋ 最罪
+ㄗㄨㄣ 尊
+ㄗㄨㄥ 宗
+ㄗㄨㄥˇ 總
+ㄗㄨㄥˋ 縱
+ㄗㄡˇ 走
+ㄗㄡˋ 奏
+ㄘˊ 詞辭
+ㄘˋ 次刺
+ㄘㄚ 擦
+ㄘㄜˋ 冊測
+ㄘㄞˊ 才材財
+ㄘㄞˇ 采
+ㄘㄞˋ 菜
+ㄘㄢ 參
+ㄘㄢˊ 殘
+ㄘㄢˇ 慘
+ㄘㄤ 倉
+ㄘㄤˊ 藏
+ㄘㄠ 操
+ㄘㄠˇ 草
+ㄘㄥˊ 曾層
+ㄘㄨ 粗
+ㄘㄨˋ 醋
+ㄘㄨㄛˋ 錯
+ㄘㄨㄢ 竄
+ㄘㄨㄟ 催
+ㄘㄨㄣ 村
+ㄘㄨㄣˋ 寸
+ㄘㄨㄥ 聰
+ㄘㄨㄥˊ 從
+ㄘㄡˋ 湊
+ㄙ 思絲
+ㄙˇ 死
+ㄙˋ 四
+ㄙㄚ 撒
+ㄙㄚˇ 灑
+ㄙㄜˋ 色
+ㄙㄞ 塞
+ㄙㄞˋ 賽
+ㄙㄢ 三
+ㄙㄢˇ 傘散
+ㄙㄤ 桑
+ㄙㄠ 騷
+ㄙㄠˇ 掃
+ㄙㄥ 僧
+ㄙㄨ 蘇
+ㄙㄨˋ 速素
+ㄙㄨㄛ 縮
+ㄙㄨㄛˇ 所鎖
+ㄙㄨㄢ 酸
+ㄙㄨㄢˋ 算
+ㄙㄨㄟ 雖
+ㄙㄨㄟˊ 隨
+ㄙㄨㄟˋ 歲
+ㄙㄨㄣ 孫
+ㄙㄨㄥ 松
+ㄙㄨㄥˋ 送
+ㄙㄡ 搜
+ㄚ 啊
+˙ㄚ 啊呀
+ㄛ 喔
+ㄜˊ 俄鵝
+ㄜˋ 餓惡
+ㄞ 哀
+ㄞˇ 矮
+ㄞˋ 愛
+ㄢ 安
+ㄢˋ 案岸
+ㄤ 骯
+ㄠ 凹
+ㄠˊ 熬
+ㄠˇ 襖
+ㄠˋ 傲
+ㄡ 歐
+ㄡˇ 偶
+ㄣ 恩
+ㄦˊ 兒
+ㄦˇ 耳
+ㄦˋ 二
+ㄧ 一衣
+ㄧˊ 移宜
+ㄧˇ 以椅
+ㄧˋ 意易義
+ㄧㄚ 呀
+ㄧㄚˊ 牙
+ㄧㄚˇ 啞
+ㄧㄚˋ 亞
+ㄧㄢ 煙
+ㄧㄢˊ 言研
+ㄧㄢˇ 眼演
+ㄧㄢˋ 燕
+ㄧㄤ 央
+ㄧㄤˊ 羊陽
+ㄧㄤˇ 養
+ㄧㄤˋ 樣
+ㄧㄠ 要腰
+ㄧㄠˊ 搖
+ㄧㄠˇ 咬
+ㄧㄠˋ 要
+ㄧㄝ 耶
+ㄧㄝˊ 爺
+ㄧㄝˇ 也野
+ㄧㄝˋ 夜葉
+ㄧㄣ 音因
+ㄧㄣˊ 銀
+ㄧㄣˇ 飲
+ㄧㄣˋ 印
+ㄧㄥ 英
+ㄧㄥˊ 迎
+ㄧㄥˇ 影
+ㄧㄥˋ 應
+ㄧㄡ 優
+ㄧㄡˊ 油遊由
+ㄧㄡˇ 有友
+ㄧㄡˋ 又右
+ㄨ 屋
+ㄨˊ 無
+ㄨˇ 五午
+ㄨˋ 物霧
+ㄨㄚ 挖
+ㄨㄚˊ 娃
+ㄨㄚˇ 瓦
+ㄨㄛ 窩
+ㄨㄛˇ 我
+ㄨㄛˋ 臥
+ㄨㄞ 歪
+ㄨㄞˋ 外
+ㄨㄟ 微
+ㄨㄟˊ 為圍
+ㄨㄟˇ 尾
+ㄨㄟˋ 位為
+ㄨㄢ 彎灣
+ㄨㄢˊ 玩完
+ㄨㄢˇ 晚
+ㄨㄢˋ 萬
+ㄨㄣ 溫
+ㄨㄣˊ 文
+ㄨㄣˇ 吻
+ㄨㄣˋ 問
+ㄨㄤ 汪
+ㄨㄤˊ 王
+ㄨㄤˇ 網往
+ㄨㄤˋ 望忘
+ㄨㄥ 翁
+ㄩ 於
+ㄩˊ 魚
+ㄩˇ 雨語
+ㄩˋ 玉遇
+ㄩㄝ 約
+ㄩㄝˋ 月越樂
+ㄩㄢ 冤
+ㄩㄢˊ 圓原
+ㄩㄢˇ 遠
+ㄩㄢˋ 院願
+ㄩㄣ 暈
+ㄩㄣˊ 雲
+ㄩㄣˋ 運
+ㄩㄥ 擁
+ㄩㄥˋ 用
+`;
+
+/* 詞彙：以空白分隔的音節序列 | 詞 */
+const WORD_DATA = `
+ㄋㄧˇ ㄏㄠˇ|你好
+ㄋㄧˇ ˙ㄇㄣ|你們
+ㄨㄛˇ ˙ㄇㄣ|我們
+ㄊㄚ ˙ㄇㄣ|他們
+ㄊㄚ ˙ㄇㄣ|她們
+ㄨㄛˇ ㄞˋ ㄋㄧˇ|我愛你
+ㄒㄧㄝˋ ㄒㄧㄝˋ|謝謝
+ㄒㄧㄝˋ ˙ㄒㄧㄝ|謝謝
+ㄗㄞˋ ㄐㄧㄢˋ|再見
+ㄉㄨㄟˋ ㄅㄨˋ ㄑㄧˇ|對不起
+ㄇㄟˊ ㄍㄨㄢ ㄒㄧˋ|沒關係
+ㄊㄞˊ ㄨㄢ|台灣
+ㄓㄨㄥ ㄍㄨㄛˊ|中國
+ㄓㄨㄥ ㄨㄣˊ|中文
+ㄍㄨㄛˊ ㄩˇ|國語
+ㄏㄢˋ ㄗˋ|漢字
+ㄒㄩㄝˊ ㄒㄧㄠˋ|學校
+ㄌㄠˇ ㄕ|老師
+ㄒㄩㄝˊ ㄕㄥ|學生
+ㄕㄥ ㄏㄨㄛˊ|生活
+ㄆㄥˊ ㄧㄡˇ|朋友
+ㄍㄠ ㄒㄧㄥˋ|高興
+ㄎㄨㄞˋ ㄌㄜˋ|快樂
+ㄒㄧㄣ ㄎㄨˇ|辛苦
+ㄗㄠˇ ㄕㄤˋ|早上
+ㄨㄢˇ ㄕㄤˋ|晚上
+ㄗㄠˇ ㄢ|早安
+ㄨㄢˇ ㄢ|晚安
+ㄒㄧㄢˋ ㄗㄞˋ|現在
+ㄐㄧㄣ ㄊㄧㄢ|今天
+ㄇㄧㄥˊ ㄊㄧㄢ|明天
+ㄗㄨㄛˊ ㄊㄧㄢ|昨天
+ㄒㄧˇ ㄏㄨㄢ|喜歡
+ㄒㄧㄤˇ ㄧㄠˋ|想要
+ㄔ ㄈㄢˋ|吃飯
+ㄏㄜ ㄕㄨㄟˇ|喝水
+ㄕㄨㄟˋ ㄐㄧㄠˋ|睡覺
+ㄕㄤˋ ㄎㄜˋ|上課
+ㄕㄤˋ ㄒㄩㄝˊ|上學
+ㄉㄨˊ ㄕㄨ|讀書
+ㄒㄧㄝˇ ㄗˋ|寫字
+ㄕㄨㄛ ㄏㄨㄚˋ|說話
+ㄇㄚ ˙ㄇㄚ|媽媽
+ㄅㄚˋ ˙ㄅㄚ|爸爸
+ㄍㄜ ˙ㄍㄜ|哥哥
+ㄐㄧㄝˇ ˙ㄐㄧㄝ|姐姐
+ㄇㄟˋ ˙ㄇㄟ|妹妹
+ㄉㄧˋ ˙ㄉㄧ|弟弟
+ㄉㄧㄢˋ ㄋㄠˇ|電腦
+ㄉㄧㄢˋ ㄕˋ|電視
+ㄉㄧㄢˋ ㄏㄨㄚˋ|電話
+ㄕㄡˇ ㄐㄧ|手機
+ㄨㄤˇ ㄌㄨˋ|網路
+ㄊㄧㄢ ㄑㄧˋ|天氣
+ㄏㄠˇ ㄔ|好吃
+ㄏㄠˇ ㄎㄢˋ|好看
+ㄏㄠˇ ㄊㄧㄥ|好聽
+ㄕㄥ ㄖˋ|生日
+ㄕㄥ ㄖˋ ㄎㄨㄞˋ ㄌㄜˋ|生日快樂
+ㄕˋ ㄐㄧㄝˋ|世界
+ㄒㄧㄤ ㄒㄧㄣˋ|相信
+ㄒㄧㄢ ㄕㄥ|先生
+ㄒㄧㄠˇ ㄐㄧㄝˇ|小姐
+ㄨㄣˋ ㄊㄧˊ|問題
+ㄗㄨㄛˋ ㄧㄝˋ|作業
+ㄕㄨˋ ㄒㄩㄝˊ|數學
+ㄧㄥ ㄨㄣˊ|英文
+ㄐㄧㄝˋ ㄕㄠˋ|介紹
+ㄗˋ ㄐㄧˇ|自己
+ㄕㄣˊ ˙ㄇㄜ|什麼
+ㄗㄣˇ ˙ㄇㄜ|怎麼
+ㄋㄚˇ ㄌㄧˇ|哪裡
+ㄓㄜˋ ㄌㄧˇ|這裡
+ㄋㄚˋ ㄌㄧˇ|那裡
+ㄓㄜˋ ˙ㄍㄜ|這個
+ㄋㄚˋ ˙ㄍㄜ|那個
+ㄏㄠˇ ㄆㄥˊ ㄧㄡˇ|好朋友
+ㄏㄨㄢ ㄧㄥˊ|歡迎
+ㄏㄨㄢ ㄧㄥˊ ㄍㄨㄤ ㄌㄧㄣˊ|歡迎光臨
+ㄒㄧㄣ ㄋㄧㄢˊ ㄎㄨㄞˋ ㄌㄜˋ|新年快樂
+ㄍㄨㄛˋ ㄋㄧㄢˊ|過年
+ㄒㄩㄝˊ ㄒㄧˊ|學習
+ㄋㄩˇ ㄗˇ|女子
+ㄏㄨㄚ ㄩㄢˊ|花園
+ㄕㄨ ㄅㄠ|書包
+ㄕㄨ ㄉㄧㄢˋ|書店
+ㄊㄨˊ ㄕㄨ ㄍㄨㄢˇ|圖書館
+ㄒㄩㄝˊ ㄒㄧˊ ㄗㄨㄛˋ ㄧㄝˋ|學習作業
+ㄗㄨㄛˋ ㄨㄣˊ|作文
+ㄅㄧˇ ㄐㄧˋ|筆記
+ㄔㄜ ㄓㄢˋ|車站
+ㄏㄨㄛˇ ㄔㄜ|火車
+ㄍㄨㄥ ㄍㄨㄥˋ ㄑㄧˋ ㄔㄜ|公共汽車
+ㄐㄧ ㄔㄤˇ|機場
+ㄉㄚˋ ㄐㄧㄚ|大家
+ㄉㄚˋ ㄐㄧㄚ ㄏㄠˇ|大家好
+ㄨㄛˇ ㄕˋ|我是
+ㄨㄛˇ ㄒㄧˇ ㄏㄨㄢ|我喜歡
+ㄨㄛˇ ㄒㄧㄤˇ|我想
+ㄋㄧˇ ㄗㄞˋ ㄍㄢˋ ㄕㄣˊ ˙ㄇㄜ|你在幹什麼
+ㄋㄧˇ ㄐㄧㄠˋ ㄕㄣˊ ˙ㄇㄜ ㄇㄧㄥˊ ㄗˋ|你叫什麼名字
+ㄇㄧㄥˊ ㄗˋ|名字
+`;
+
+/* ───────── 解析字典 ───────── */
+const CHARS = new Map();
+for (const line of CHAR_DATA.trim().split('\n')) {
+  const sp = line.indexOf(' ');
+  if (sp < 0) continue;
+  const key = line.slice(0, sp), list = CHARS.get(key) || [];
+  for (const c of line.slice(sp + 1).trim()) if (!list.includes(c)) list.push(c);
+  CHARS.set(key, list);
+}
+const WORDS = new Map();
+let MAX_WORD = 1;
+for (const line of WORD_DATA.trim().split('\n')) {
+  const [k, w] = line.split('|');
+  const n = k.split(' ').length;
+  if (!w || [...w].length !== n) { console.warn('詞條音節數與字數不符：', line); continue; }
+  WORDS.set(k, [...w]);
+  MAX_WORD = Math.max(MAX_WORD, n);
+}
+
+
+/* ───────── 介面文字（繁體中文 / English） ───────── */
+const T = {
+  zh: {
+    title: '注音輸入唸讀機', skipKb: '跳到注音鍵盤', skipRes: '跳到轉換結果',
+    hint: '點注音 → 按聲調送出 → 轉國字 → 唸出來', exLabel: '範例句子',
+    btnSettings: '⚙️ 顯示與操作設定', setTitle: '⚙️ 顯示與操作設定', close: '關閉',
+    g_fullscreen: '全螢幕', g_sound: '音效', g_device: '裝置', g_layout: '版面', g_lang: '語言', g_font: '字體', g_theme: '色系', g_contrast: '高對比模式',
+    o_on: '開啟', o_off: '關閉', o_auto: '自動', o_phone: '手機', o_tablet: '平板', o_desktop: '電腦',
+    o_portrait: '直式', o_landscape: '橫式', o_zh: '繁體中文', o_en: '英文',
+    o_small: '縮小', o_normal: '標準', o_large: '放大', o_theme_auto: '跟隨系統', o_light: '亮色', o_dark: '暗色',
+    n_sound: '按鍵提示音。關閉後，選同音字時也不會自動唸出（「唸出來」不受影響）。',
+    n_fs: '此瀏覽器不支援全螢幕。',
+    n_layout: '強制橫式時，若螢幕是直的，畫面會很小。',
+    voiceSec: '語音（朗讀）', voice: '語音', rate: '語速', pitch: '音調', test: '試聽', testText: '你好，這是測試語音。',
+    bufTitle: '目前輸入的注音', bufEmpty: '請點選下方的注音符號', bufNext: '再按聲調鍵送出（一聲按空白鍵）',
+    resTitle: '注音 → 國字（點國字可換同音字）', resGroup: '轉換結果', sentence: '完整句子', emptyRes: '還沒有輸入。國字會顯示在這裡。',
+    candsGroup: '同音字選單', candsIdle: '點上方的國字，可以在這裡換成其他同音字。',
+    kbdLabel: '注音鍵盤，依電腦鍵盤注音排列。可用方向鍵移動，Enter 或空白鍵按下',
+    catI: '聲母', catM: '介音', catF: '韻母', catT: '聲調',
+    tone1: '一聲', tone2: '二聲', tone3: '三聲', tone4: '四聲', tone5: '輕聲',
+    kBack: '退格', kBackFull: '退格，刪除最後一個', kClear: '清除', kClearFull: '清除全部', kStop: '■ 停止', kStopFull: '停止朗讀',
+    kSpace: '一聲　（空白鍵）', kSpaceFull: '一聲，送出目前注音', kSpeak: '🔊 唸出來', kSpeakFull: '唸出來，朗讀完整句子',
+    kPunct: p => `標點 ${p}`, kTone: n => `${n}，送出目前注音`, kSym: (s, c) => `${s}，${c}`,
+    cellLabel: (n, zy, ch) => `第 ${n} 個字，注音 ${zy}，${ch ? '國字 ' + ch : '沒有對應的國字'}。按下可選同音字`,
+    candLab: zy => `「${zy}」的同音字：`, candNone: '字典裡沒有這個音。', candOthers: '其他聲調：', candOtherAria: c => `其他聲調的字 ${c}`,
+    st_loaded: n => `已載入 ${n} 個中文語音。`, st_novoice: '找不到可用的語音，請確認電腦已安裝中文語音。',
+    st_nozh: '找不到中文語音，發音可能不正確，請安裝中文語音包。', st_nosupport: '此瀏覽器不支援 Web Speech API。',
+    st_stopped: '已停止。', st_speaking: x => `正在唸：${x}`, st_done: '唸完了。', st_fail: e => `朗讀失敗：${e}`,
+    st_nochars: '沒有可以唸的國字。', st_missing: (x, n) => `正在唸：${x}（有 ${n} 個音沒有對應國字，已略過）`,
+    a_needSym: '請先輸入注音符號', a_sym: (s, c, b) => `${s}，${c}。目前輸入 ${b}`, a_cancel: s => `已取消 ${s}`,
+    a_commit: (zy, ch) => `送出 ${zy}，${ch ? '轉為 ' + ch : '字典中沒有對應的國字'}`, a_del: x => `已刪除 ${x}`, a_nodel: '沒有可以刪除的內容',
+    a_cleared: '已全部清除', a_punct: p => `加入標點 ${p}`, a_candOpen: '已開啟同音字選單，用 Tab 或觸控選擇，Esc 關閉', a_picked: c => `已選 ${c}`,
+    a_speaking: '開始朗讀', a_stopped: '已停止朗讀', a_example: x => `已載入範例：${x}`, a_setting: (g, o) => `${g}：${o}`,
+    a_setOpen: '設定視窗已開啟', a_setClose: '設定視窗已關閉',
+  },
+  en: {
+    title: 'Zhuyin Reader', skipKb: 'Skip to keyboard', skipRes: 'Skip to results',
+    hint: 'Tap symbols → tone → characters → read aloud', exLabel: 'Example sentences',
+    btnSettings: '⚙️ Display & Controls', setTitle: '⚙️ Display & Controls', close: 'Close',
+    g_fullscreen: 'Fullscreen', g_sound: 'Sound effects', g_device: 'Device', g_layout: 'Layout', g_lang: 'Language', g_font: 'Font size', g_theme: 'Color scheme', g_contrast: 'High contrast',
+    o_on: 'On', o_off: 'Off', o_auto: 'Auto', o_phone: 'Phone', o_tablet: 'Tablet', o_desktop: 'Desktop',
+    o_portrait: 'Portrait', o_landscape: 'Landscape', o_zh: '繁體中文', o_en: 'English',
+    o_small: 'Smaller', o_normal: 'Normal', o_large: 'Larger', o_theme_auto: 'System', o_light: 'Light', o_dark: 'Dark',
+    n_sound: 'Key tones. When off, picking a homophone will not auto-read it (the Read aloud key is unaffected).',
+    n_fs: 'Fullscreen is not supported in this browser.',
+    n_layout: 'Forcing landscape on a portrait screen makes everything small.',
+    voiceSec: 'Voice (read aloud)', voice: 'Voice', rate: 'Speed', pitch: 'Pitch', test: 'Test', testText: '你好，這是測試語音。',
+    bufTitle: 'Current zhuyin input', bufEmpty: 'Tap zhuyin symbols below', bufNext: 'Now press a tone key (Space = tone 1)',
+    resTitle: 'Zhuyin → Characters (tap a character to change it)', resGroup: 'Conversion result', sentence: 'Full sentence', emptyRes: 'Nothing typed yet. Characters appear here.',
+    candsGroup: 'Homophone choices', candsIdle: 'Tap a character above to swap it for another one with the same sound.',
+    kbdLabel: 'Zhuyin keyboard, arranged like a computer keyboard. Move with arrow keys, press with Enter or Space',
+    catI: 'Initial', catM: 'Medial', catF: 'Final', catT: 'Tone',
+    tone1: 'Tone 1', tone2: 'Tone 2', tone3: 'Tone 3', tone4: 'Tone 4', tone5: 'Neutral',
+    kBack: 'Back', kBackFull: 'Backspace, delete the last item', kClear: 'Clear', kClearFull: 'Clear everything', kStop: '■ Stop', kStopFull: 'Stop reading',
+    kSpace: 'Tone 1　(Space)', kSpaceFull: 'Tone 1, submit current zhuyin', kSpeak: '🔊 Read aloud', kSpeakFull: 'Read the full sentence aloud',
+    kPunct: p => `Punctuation ${p}`, kTone: n => `${n}, submit current zhuyin`, kSym: (s, c) => `${s}, ${c}`,
+    cellLabel: (n, zy, ch) => `Character ${n}, zhuyin ${zy}, ${ch ? 'shown as ' + ch : 'no matching character'}. Press to choose a homophone`,
+    candLab: zy => `Homophones of "${zy}": `, candNone: 'This sound is not in the dictionary.', candOthers: 'Other tones: ', candOtherAria: c => `Other-tone character ${c}`,
+    st_loaded: n => `${n} Chinese voice(s) loaded.`, st_novoice: 'No voice found. Please install a Chinese voice on this computer.',
+    st_nozh: 'No Chinese voice found; pronunciation may be wrong. Please install a Chinese voice pack.', st_nosupport: 'This browser does not support the Web Speech API.',
+    st_stopped: 'Stopped.', st_speaking: x => `Reading: ${x}`, st_done: 'Finished.', st_fail: e => `Speech failed: ${e}`,
+    st_nochars: 'There is nothing to read yet.', st_missing: (x, n) => `Reading: ${x} (${n} sound(s) without a character were skipped)`,
+    a_needSym: 'Enter zhuyin symbols first', a_sym: (s, c, b) => `${s}, ${c}. Current input ${b}`, a_cancel: s => `Removed ${s}`,
+    a_commit: (zy, ch) => `Submitted ${zy}, ${ch ? 'converted to ' + ch : 'no matching character in the dictionary'}`, a_del: x => `Deleted ${x}`, a_nodel: 'Nothing to delete',
+    a_cleared: 'Everything cleared', a_punct: p => `Added punctuation ${p}`, a_candOpen: 'Homophone choices opened. Use Tab or touch to choose, Escape to close', a_picked: c => `Chose ${c}`,
+    a_speaking: 'Reading started', a_stopped: 'Reading stopped', a_example: x => `Example loaded: ${x}`, a_setting: (g, o) => `${g}: ${o}`,
+    a_setOpen: 'Settings dialog opened', a_setClose: 'Settings dialog closed',
+  },
+};
+let lang = 'zh';
+const t = (k, ...a) => {
+  const v = T[lang][k] !== undefined ? T[lang][k] : T.zh[k];
+  return typeof v === 'function' ? v(...a) : v;
+};
+
+/* ───────── 鍵盤定義：依電腦鍵盤的標準注音排列 ───────── */
+const CAT = {
+  i: [...'ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙ'],
+  m: [...'ㄧㄨㄩ'],
+  f: [...'ㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦ'],
+};
+const catName = c => t({ i: 'catI', m: 'catM', f: 'catF' }[c]);
+const TONE_INFO = { 'ˊ': ['tone2', '6'], 'ˇ': ['tone3', '3'], 'ˋ': ['tone4', '4'], '˙': ['tone5', '7'] };
+const catOf = s => CAT.i.includes(s) ? 'i' : CAT.m.includes(s) ? 'm' : 'f';
+
+const LAYOUT = [
+  { pc: '1234567890-', keys: ['ㄅ', 'ㄉ', 'ˇ', 'ˋ', 'ㄓ', 'ˊ', '˙', 'ㄚ', 'ㄞ', 'ㄢ', 'ㄦ'] },
+  { pc: 'qwertyuiop',  keys: ['ㄆ', 'ㄊ', 'ㄍ', 'ㄐ', 'ㄔ', 'ㄗ', 'ㄧ', 'ㄛ', 'ㄟ', 'ㄣ', '@back'] },
+  { pc: 'asdfghjkl;',  keys: ['ㄇ', 'ㄋ', 'ㄎ', 'ㄑ', 'ㄕ', 'ㄘ', 'ㄨ', 'ㄜ', 'ㄠ', 'ㄤ', '@clear'] },
+  { pc: 'zxcvbnm,./',  keys: ['ㄈ', 'ㄌ', 'ㄏ', 'ㄒ', 'ㄖ', 'ㄙ', 'ㄩ', 'ㄝ', 'ㄡ', 'ㄥ', '@stop'] },
+  { pc: '',            keys: ['，', '。', '？', '！', '@space', '@speak'] },
+];
+const SPAN = { '@space': 4, '@speak': 3 };
+const KEY2SYM = {}, TONE_KEYS = { ' ': 'ˉ' };
+LAYOUT.forEach(r => r.keys.forEach((k, i) => {
+  if (!r.pc[i] || k.startsWith('@')) return;
+  if (TONE_INFO[k]) TONE_KEYS[r.pc[i]] = k; else KEY2SYM[r.pc[i]] = k;
+}));
+
+/* ───────── 狀態 ───────── */
+let buf = { i: '', m: '', f: '' };
+let items = [];          // {base, tone} 或 {punct}
+let overrides = {};      // index -> 使用者選的字
+let selected = -1;       // 正在選字的索引
+
+const $ = id => document.getElementById(id);
+const root = document.documentElement;
+const keyOf = it => it.tone === '˙' ? '˙' + it.base : it.base + (it.tone === 'ˉ' ? '' : it.tone);
+const zhuyinOf = keyOf;
+const bufBase = () => buf.i + buf.m + buf.f;
+let keyEls = {};         // 符號 → 按鈕
+
+let liveTimer;
+function announce(msg) {
+  const l = $('live');
+  l.textContent = '';
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => l.textContent = msg, 60);
+}
+
+/* ───────── 使用者設定 ───────── */
+const S = { fullscreen: 'off', sound: 'on', device: 'auto', layout: 'auto', lang: 'zh', font: 'normal', theme: 'auto', contrast: 'off' };
+const SET_DEF = [
+  ['fullscreen', ['on', 'off']],
+  ['sound',      ['on', 'off']],
+  ['device',     ['auto', 'phone', 'tablet', 'desktop']],
+  ['layout',     ['auto', 'portrait', 'landscape']],
+  ['lang',       ['zh', 'en']],
+  ['font',       ['small', 'normal', 'large']],
+  ['theme',      ['auto', 'light', 'dark']],
+  ['contrast',   ['off', 'on']],
+];
+const FONT_Z = { small: 0.85, normal: 1, large: 1.2 };
+const optLabel = (g, o) => (T[lang]['o_' + g + '_' + o] !== undefined ? t('o_' + g + '_' + o) : t('o_' + o));
+const fsSupported = () => !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+
+function saveSettings() { try { const { fullscreen, ...rest } = S; localStorage.setItem('zy-settings', JSON.stringify(rest)); } catch (e) {} }
+function loadSettings() {
+  try {
+    const o = JSON.parse(localStorage.getItem('zy-settings') || '{}');
+    for (const [id, opts] of SET_DEF) if (id !== 'fullscreen' && opts.includes(o[id])) S[id] = o[id];
+  } catch (e) {}
+}
+
+/* 依裝置與螢幕方向決定實際版面 */
+function resolveEnv() {
+  const w = innerWidth, h = innerHeight, short = Math.min(w, h);
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const dev = S.device !== 'auto' ? S.device : short < 500 ? 'phone' : (short < 820 && coarse) ? 'tablet' : 'desktop';
+  const lay = S.layout !== 'auto' ? S.layout : (w < h ? 'portrait' : 'landscape');
+  root.dataset.device = dev;
+  root.dataset.layout = lay;
+}
+addEventListener('resize', resolveEnv);
+
+function applyAppearance() {
+  root.dataset.theme = S.theme;
+  root.dataset.contrast = S.contrast === 'on' ? 'high' : '';
+  root.style.setProperty('--z', FONT_Z[S.font]);
+  resolveEnv();
+}
+
+/* 音效（Web Audio 短音，不需要音檔） */
+let actx;
+function beep(freq, dur = 0.06, type = 'sine', vol = 0.09, delay = 0) {
+  if (S.sound !== 'on') return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain(), t0 = actx.currentTime + delay;
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  } catch (e) {}
+}
+const sfx = {
+  key:  () => beep(660, 0.05),
+  tone: () => { beep(784, 0.07); beep(1047, 0.1, 'sine', 0.09, 0.07); },
+  del:  () => beep(330, 0.07, 'triangle'),
+  err:  () => beep(200, 0.16, 'square', 0.05),
+  pick: () => beep(880, 0.07),
+  on:   () => beep(988, 0.08),
+};
+
+/* 全螢幕 */
+function setFullscreen(on) {
+  const el = root;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  try {
+    const p = on ? req && req.call(el) : (document.fullscreenElement || document.webkitFullscreenElement) && exit && exit.call(document);
+    if (p && p.catch) p.catch(() => syncFullscreen());
+  } catch (e) { syncFullscreen(); }
+}
+function syncFullscreen() {
+  S.fullscreen = (document.fullscreenElement || document.webkitFullscreenElement) ? 'on' : 'off';
+  if (!$('settings').hidden) renderSettings();
+}
+document.addEventListener('fullscreenchange', syncFullscreen);
+document.addEventListener('webkitfullscreenchange', syncFullscreen);
+
+function setSetting(id, val) {
+  S[id] = val;
+  if (id === 'fullscreen') setFullscreen(val === 'on');
+  else if (id === 'sound') { if (val === 'on') sfx.on(); }
+  else if (id === 'lang') { lang = val; applyLang(); }
+  else applyAppearance();
+  saveSettings();
+  announce(t('a_setting', t('g_' + id), optLabel(id, val)));
+}
+
+/* 設定視窗：每一項都是一組單選按鈕（原生 radio，方向鍵即可切換） */
+function renderSettings() {
+  const host = $('set-groups');
+  const activeId = host.contains(document.activeElement) ? document.activeElement.id : null;
+  host.innerHTML = '';
+  for (const [id, opts] of SET_DEF) {
+    const fs = document.createElement('fieldset');
+    const lg = document.createElement('legend');
+    lg.textContent = t('g_' + id);
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    for (const o of opts) {
+      const lab = document.createElement('label');
+      const inp = document.createElement('input');
+      inp.type = 'radio'; inp.name = 'set-' + id; inp.value = o; inp.id = `set-${id}-${o}`;
+      inp.checked = S[id] === o;
+      if (id === 'fullscreen' && !fsSupported()) inp.disabled = true;
+      inp.onchange = () => setSetting(id, o);
+      const sp = document.createElement('span');
+      sp.textContent = optLabel(id, o);
+      lab.append(inp, sp);
+      seg.appendChild(lab);
+    }
+    fs.append(lg, seg);
+    const note = { sound: 'n_sound', layout: 'n_layout' }[id] || (id === 'fullscreen' && !fsSupported() ? 'n_fs' : null);
+    if (note) { const p = document.createElement('p'); p.className = 'note'; p.textContent = t(note); fs.appendChild(p); }
+    host.appendChild(fs);
+  }
+  if (activeId) { const el = $(activeId); if (el) el.focus(); }
+}
+
+let settingsOpener = null;
+function toggleSettings(open) {
+  $('settings').hidden = !open;
+  $('backdrop').hidden = !open;
+  $('b-settings').setAttribute('aria-expanded', String(open));
+  if (open) {
+    settingsOpener = document.activeElement;
+    renderSettings();
+    const first = $('set-groups').querySelector('input:checked:not(:disabled)') || $('b-close-settings');
+    first.focus();
+    announce(t('a_setOpen'));
+  } else {
+    (settingsOpener && document.contains(settingsOpener) ? settingsOpener : $('b-settings')).focus();
+    announce(t('a_setClose'));
+  }
+}
+$('b-settings').onclick = () => toggleSettings($('settings').hidden);
+$('b-close-settings').onclick = () => toggleSettings(false);
+$('backdrop').onclick = () => toggleSettings(false);
+/* 對話框內 Tab 循環，不會跑到背後 */
+$('settings').addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  const f = [...$('settings').querySelectorAll('button, select, input:not(:disabled)')].filter(x => x.offsetParent !== null);
+  // 同一組 radio 只算一個停駐點
+  const stops = f.filter(x => x.type !== 'radio' || x.checked || !f.some(y => y.name === x.name && y.checked));
+  if (!stops.length) return;
+  const a = stops[0], z = stops[stops.length - 1];
+  if (e.shiftKey && document.activeElement === a) { e.preventDefault(); z.focus(); }
+  else if (!e.shiftKey && document.activeElement === z) { e.preventDefault(); a.focus(); }
+});
+
+/* ───────── 注音 → 國字 ───────── */
+function candidatesFor(it) {
+  const exact = CHARS.get(keyOf(it)) || [];
+  const others = [];
+  for (const tn of ['ˉ', 'ˊ', 'ˇ', 'ˋ', '˙']) {
+    if (tn === it.tone) continue;
+    for (const c of CHARS.get(keyOf({ base: it.base, tone: tn })) || [])
+      if (!exact.includes(c) && !others.includes(c)) others.push(c);
+  }
+  return { exact, others };
+}
+
+/* 先做最長詞彙比對，其餘取最常用字，最後套用使用者的換字 */
+function convert() {
+  const out = new Array(items.length).fill(null);
+  let i = 0;
+  while (i < items.length) {
+    if (items[i].punct) { out[i] = items[i].punct; i++; continue; }
+    let hit = false;
+    for (let len = Math.min(MAX_WORD, items.length - i); len >= 2 && !hit; len--) {
+      const seg = items.slice(i, i + len);
+      if (seg.some(s => s.punct)) continue;
+      const w = WORDS.get(seg.map(keyOf).join(' '));
+      if (w) { w.forEach((c, k) => out[i + k] = c); i += len; hit = true; }
+    }
+    if (!hit) { out[i] = candidatesFor(items[i]).exact[0] || null; i++; }
+  }
+  for (const [idx, c] of Object.entries(overrides)) if (items[idx]) out[idx] = c;
+  return out;
+}
+
+/* ───────── 畫面 ───────── */
+function renderBuffer() {
+  const el = $('buffer');
+  el.innerHTML = '';
+  const any = ['i', 'm', 'f'].some(k => buf[k]);
+  for (const k of ['i', 'm', 'f']) if (buf[k]) {
+    const s = document.createElement('span');
+    s.className = 'sym ' + k; s.textContent = buf[k];
+    s.setAttribute('role', 'img'); s.setAttribute('aria-label', t('kSym', buf[k], catName(k)));
+    el.appendChild(s);
+  }
+  const h = document.createElement('span');
+  h.className = 'hint';
+  h.textContent = any ? t('bufNext') : t('bufEmpty');
+  el.appendChild(h);
+  for (const [s, b] of Object.entries(keyEls)) b.setAttribute('aria-pressed', String(buf[catOf(s)] === s));
+}
+
+function renderResult(focusIdx) {
+  const out = convert();
+  const box = $('result');
+  box.innerHTML = '';
+  if (!items.length) box.innerHTML = `<span class="empty">${t('emptyRes')}</span>`;
+  items.forEach((it, idx) => {
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    if (it.punct) {
+      cell.classList.add('punct');
+      cell.innerHTML = `<div class="zy" aria-hidden="true">&nbsp;</div><div class="ch" role="img" aria-label="${t('kPunct', it.punct)}">${it.punct}</div>`;
+    } else {
+      const zy = document.createElement('div');
+      zy.className = 'zy'; zy.textContent = zhuyinOf(it); zy.setAttribute('aria-hidden', 'true');
+      const ch = document.createElement('button');
+      ch.className = 'ch' + (out[idx] ? '' : ' none');
+      ch.dataset.i = idx;
+      ch.textContent = out[idx] || '？';
+      ch.setAttribute('aria-label', t('cellLabel', idx + 1, zhuyinOf(it), out[idx]));
+      ch.setAttribute('aria-expanded', String(selected === idx));
+      ch.setAttribute('aria-controls', 'cands');
+      ch.onclick = () => selected === idx ? closeCands(true) : openCands(idx);
+      cell.append(zy, ch);
+    }
+    box.appendChild(cell);
+  });
+  const last = box.lastElementChild;
+  if (last && selected < 0 && focusIdx === undefined) last.scrollIntoView({ block: 'nearest' });
+  $('sentence').innerHTML = items.length ? `<span>${t('sentence')}</span>${out.map(c => c || '').join('')}` : '';
+  renderCands(out);
+  const sp = $('kbd').querySelector('[data-act="speak"]');
+  if (sp) sp.disabled = !out.some(c => c && !/[，。？！]/.test(c));
+  if (focusIdx !== undefined) focusCell(focusIdx);
+}
+function focusCell(i) { const b = $('result').querySelector(`.ch[data-i="${i}"]`); if (b) { b.focus(); b.scrollIntoView({ block: 'nearest' }); } }
+
+function renderCands(out) {
+  const box = $('cands');
+  box.innerHTML = '';
+  if (selected < 0 || !items[selected] || items[selected].punct) {
+    selected = -1;
+    box.innerHTML = `<span class="lab">${t('candsIdle')}</span>`;
+    return;
+  }
+  const it = items[selected], { exact, others } = candidatesFor(it);
+  const lab = document.createElement('span');
+  lab.className = 'lab'; lab.textContent = t('candLab', zhuyinOf(it));
+  box.appendChild(lab);
+  const add = (list, far) => list.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'cand' + (far ? ' far' : '');
+    b.textContent = c;
+    b.setAttribute('aria-label', far ? t('candOtherAria', c) : c);
+    if (out[selected] === c) b.setAttribute('aria-current', 'true');
+    b.onclick = () => {
+      overrides[selected] = c; const i = selected; selected = -1;
+      renderResult(i); sfx.pick();
+      if (S.sound === 'on') speak(c, true);
+      announce(t('a_picked', c));
+    };
+    box.appendChild(b);
+  });
+  add(exact, false);
+  if (!exact.length) { const n = document.createElement('span'); n.className = 'lab'; n.textContent = t('candNone'); box.appendChild(n); }
+  if (others.length) {
+    const sep = document.createElement('span'); sep.className = 'sep'; sep.setAttribute('role', 'presentation');
+    const l2 = document.createElement('span'); l2.className = 'lab'; l2.textContent = t('candOthers');
+    box.append(sep, l2); add(others, true);
+  }
+  const close = document.createElement('button');
+  close.className = 'close'; close.textContent = t('close'); close.onclick = () => closeCands(true);
+  box.appendChild(close);
+}
+function openCands(idx) {
+  selected = idx;
+  renderResult();
+  const first = $('cands').querySelector('.cand[aria-current="true"]') || $('cands').querySelector('.cand');
+  (first || $('cands').querySelector('.close') || $('result').querySelector(`.ch[data-i="${idx}"]`)).focus();
+  announce(t('a_candOpen'));
+}
+function closeCands(refocus) {
+  const i = selected; selected = -1;
+  renderResult(refocus ? i : undefined);
+}
+
+/* ───────── 輸入動作 ───────── */
+function addSymbol(s) {
+  const c = catOf(s);
+  buf[c] = buf[c] === s ? '' : s;
+  renderBuffer(); sfx.key();
+  announce(buf[c] ? t('a_sym', s, catName(c), bufBase()) : t('a_cancel', s));
+}
+function commitTone(tone) {
+  const base = bufBase();
+  if (!base) { sfx.err(); announce(t('a_needSym')); return; }
+  const it = { base, tone };
+  items.push(it);
+  buf = { i: '', m: '', f: '' };
+  selected = -1;
+  renderBuffer(); renderResult(); sfx.tone();
+  announce(t('a_commit', zhuyinOf(it), convert()[items.length - 1]));
+}
+function addPunct(p) { items.push({ punct: p }); selected = -1; renderResult(); sfx.key(); announce(t('a_punct', p)); }
+function backspace() {
+  for (const k of ['f', 'm', 'i']) if (buf[k]) { const s = buf[k]; buf[k] = ''; renderBuffer(); sfx.del(); announce(t('a_del', s)); return; }
+  if (items.length) {
+    const it = items.pop(); delete overrides[items.length]; selected = -1; renderResult();
+    sfx.del(); announce(t('a_del', it.punct || zhuyinOf(it)));
+  } else { sfx.err(); announce(t('a_nodel')); }
+}
+function clearAll(silent) {
+  buf = { i: '', m: '', f: '' }; items = []; overrides = {}; selected = -1;
+  stopSpeak(); renderBuffer(); renderResult();
+  if (!silent) { sfx.del(); announce(t('a_cleared')); }
+}
+
+/* ───────── 建立鍵盤 ───────── */
+let grid = [];   // {el, row, c0, c1}
+function buildKeys() {
+  const host = $('kbd');
+  host.innerHTML = ''; grid = []; keyEls = {};
+  LAYOUT.forEach((row, r) => {
+    let col = 1;
+    row.keys.forEach((k, i) => {
+      const span = SPAN[k] || 1;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'key';
+      b.style.gridColumn = `${col} / span ${span}`;
+      b.style.gridRow = r + 1;
+      const pc = row.pc[i] ? `<span class="pc" aria-hidden="true">${row.pc[i].toUpperCase()}</span>` : '';
+      if (k === '@back') {
+        b.classList.add('act');
+        b.innerHTML = `<span class="big">⌫</span><span class="sub">${t('kBack')}</span>`;
+        b.setAttribute('aria-label', t('kBackFull')); b.onclick = () => backspace();
+      } else if (k === '@clear') {
+        b.classList.add('act'); b.textContent = t('kClear');
+        b.setAttribute('aria-label', t('kClearFull')); b.onclick = () => clearAll();
+      } else if (k === '@stop') {
+        b.classList.add('act'); b.textContent = t('kStop');
+        b.setAttribute('aria-label', t('kStopFull'));
+        b.onclick = () => { stopSpeak(); setStatus('st_stopped'); announce(t('a_stopped')); };
+      } else if (k === '@space') {
+        b.classList.add('space', 't'); b.textContent = t('kSpace');
+        b.setAttribute('aria-label', t('kSpaceFull')); b.onclick = () => commitTone('ˉ');
+      } else if (k === '@speak') {
+        b.classList.add('act', 'speak'); b.dataset.act = 'speak'; b.textContent = t('kSpeak');
+        b.setAttribute('aria-label', t('kSpeakFull')); b.onclick = () => speakAll();
+      } else if (TONE_INFO[k]) {
+        b.classList.add('t');
+        b.innerHTML = `${k}<span class="sub">${t(TONE_INFO[k][0])}</span>${pc}`;
+        b.setAttribute('aria-label', t('kTone', t(TONE_INFO[k][0])));
+        b.onclick = () => commitTone(k);
+      } else if ('，。？！'.includes(k)) {
+        b.classList.add('act');
+        b.innerHTML = `<span class="big">${k}</span>`;
+        b.setAttribute('aria-label', t('kPunct', k));
+        b.onclick = () => addPunct(k);
+      } else {
+        const c = catOf(k);
+        b.classList.add(c);
+        b.innerHTML = `${k}${pc}`;
+        b.setAttribute('aria-label', t('kSym', k, catName(c)));
+        b.setAttribute('aria-pressed', 'false');
+        b.onclick = () => addSymbol(k);
+        keyEls[k] = b;
+      }
+      b.tabIndex = -1;
+      host.appendChild(b);
+      grid.push({ el: b, row: r, c0: col, c1: col + span - 1 });
+      col += span;
+    });
+  });
+  grid[0].el.tabIndex = 0;
+}
+
+/* 方向鍵在鍵盤內移動（roving tabindex），避免要 Tab 50 次 */
+$('kbd').addEventListener('focusin', e => {
+  const g = grid.find(x => x.el === e.target);
+  if (!g) return;
+  grid.forEach(x => x.el.tabIndex = -1);
+  g.el.tabIndex = 0;
+});
+$('kbd').addEventListener('keydown', e => {
+  const i = grid.findIndex(x => x.el === document.activeElement);
+  if (i < 0) return;
+  const cur = grid[i];
+  let next = null;
+  const inRow = grid.filter(x => x.row === cur.row);
+  if (e.key === 'ArrowRight') next = grid[i + 1];
+  else if (e.key === 'ArrowLeft') next = grid[i - 1];
+  else if (e.key === 'Home') next = inRow[0];
+  else if (e.key === 'End') next = inRow[inRow.length - 1];
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const r = cur.row + (e.key === 'ArrowDown' ? 1 : -1);
+    next = grid.find(x => x.row === r && x.c0 <= cur.c0 && x.c1 >= cur.c0);
+  } else return;
+  e.preventDefault();
+  if (next) next.el.focus();
+});
+
+/* 實體鍵盤：標準注音鍵位 */
+function flash(el) { if (!el) return; el.classList.add('pressed'); setTimeout(() => el.classList.remove('pressed'), 140); }
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (!$('settings').hidden) { if (e.key === 'Escape') toggleSettings(false); return; }
+  if (/^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
+  if (e.key === 'Escape') { if (selected >= 0) closeCands(true); return; }
+  const onButton = e.target.tagName === 'BUTTON';
+  if ((e.key === ' ' || e.key === 'Enter') && onButton) return;   // 交給按鈕原本的行為
+  if (e.key === 'Backspace') { e.preventDefault(); backspace(); return; }
+  if (e.key === 'Enter') { e.preventDefault(); speakAll(); return; }
+  const k = e.key.toLowerCase();
+  if (TONE_KEYS[e.key]) { e.preventDefault(); commitTone(TONE_KEYS[e.key]); return; }
+  if (KEY2SYM[k]) { e.preventDefault(); addSymbol(KEY2SYM[k]); flash(keyEls[KEY2SYM[k]]); }
+});
+
+/* ───────── Web Speech API ───────── */
+const synth = window.speechSynthesis;
+let voices = [];
+let statusState = { k: '', a: [], cls: '' };
+function setStatus(k, a = [], cls = '') { statusState = { k, a, cls }; refreshStatus(); }
+function refreshStatus() {
+  const s = $('status');
+  s.textContent = statusState.k ? t(statusState.k, ...statusState.a) : '';
+  s.className = 'status ' + statusState.cls;
+}
+
+function loadVoices() {
+  if (!synth) return;
+  const all = synth.getVoices();
+  const zh = all.filter(v => /^zh/i.test(v.lang) || /chinese|中文|國語|台灣|mandarin/i.test(v.name));
+  voices = zh.length ? zh : all;
+  voices.sort((a, b) => (/zh[-_]TW/i.test(b.lang) - /zh[-_]TW/i.test(a.lang)));
+  const sel = $('voice'), prev = sel.value;
+  sel.innerHTML = '';
+  voices.forEach((v, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = `${v.name}（${v.lang}）`;
+    sel.appendChild(o);
+  });
+  if (prev && sel.querySelector(`option[value="${prev}"]`)) sel.value = prev;
+  if (!voices.length) setStatus('st_novoice', [], 'warn');
+  else if (!zh.length) setStatus('st_nozh', [], 'warn');
+  else setStatus('st_loaded', [zh.length], 'ok');
+}
+
+function speak(text, quiet) {
+  if (!synth) { setStatus('st_nosupport', [], 'warn'); return; }
+  if (!text) return;
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = voices[$('voice').value];
+  if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'zh-TW';
+  u.rate = parseFloat($('rate').value);
+  u.pitch = parseFloat($('pitch').value);
+  if (!quiet) {
+    u.onstart = () => setStatus('st_speaking', [text], 'ok');
+    u.onend = () => setStatus('st_done');
+    u.onerror = ev => { if (ev.error !== 'canceled' && ev.error !== 'interrupted') setStatus('st_fail', [ev.error], 'warn'); };
+  }
+  synth.speak(u);
+}
+function speakAll() {
+  const out = convert();
+  const text = out.map(c => c || '').join('');
+  const missing = out.filter((c, i) => !c && !items[i].punct).length;
+  if (!text.replace(/[，。？！]/g, '')) { setStatus('st_nochars', [], 'warn'); announce(t('st_nochars')); return; }
+  speak(text);
+  if (missing) setTimeout(() => setStatus('st_missing', [text, missing], 'warn'), 50);
+  announce(t('a_speaking'));
+}
+function stopSpeak() { if (synth) synth.cancel(); }
+
+$('b-test').onclick = () => speak(t('testText'));
+$('rate').oninput = e => $('rate-v').textContent = (+e.target.value).toFixed(1);
+$('pitch').oninput = e => $('pitch-v').textContent = (+e.target.value).toFixed(1);
+
+/* ───────── 範例 ───────── */
+const EXAMPLES = [
+  ['你好', 'Hello', 'ㄋㄧˇ ㄏㄠˇ'],
+  ['我愛台灣', 'I love Taiwan', 'ㄨㄛˇ ㄞˋ ㄊㄞˊ ㄨㄢ'],
+  ['今天天氣很好', 'The weather is nice today', 'ㄐㄧㄣ ㄊㄧㄢ ㄊㄧㄢ ㄑㄧˋ ㄏㄣˇ ㄏㄠˇ'],
+];
+function buildExamples() {
+  const host = $('examples');
+  host.innerHTML = '';
+  for (const [zhText, enText, zy] of EXAMPLES) {
+    const b = document.createElement('button');
+    b.className = 'tbtn'; b.textContent = zhText;
+    b.setAttribute('aria-label', lang === 'zh' ? `範例：${zhText}` : `Example: ${enText} (${zhText})`);
+    b.onclick = () => {
+      clearAll(true);
+      for (const s of zy.split(' ')) {
+        const neutral = s.startsWith('˙'), m = s.match(/[ˊˇˋ]$/);
+        items.push({ base: s.replace(/^˙|[ˊˇˋ]$/g, ''), tone: neutral ? '˙' : m ? m[0] : 'ˉ' });
+      }
+      renderResult(); sfx.tone();
+      announce(t('a_example', convert().join('')));
+    };
+    host.appendChild(b);
+  }
+}
+
+/* ───────── 語言切換與初始化 ───────── */
+function applyLang() {
+  root.lang = lang === 'zh' ? 'zh-Hant-TW' : 'en';
+  document.title = t('title');
+  document.querySelectorAll('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n));
+  document.querySelectorAll('[data-i18n-label]').forEach(e => e.setAttribute('aria-label', t(e.dataset.i18nLabel)));
+  buildKeys(); renderBuffer(); renderResult(); buildExamples();
+  if (!$('settings').hidden) renderSettings();
+  refreshStatus();
+}
+
+loadSettings();
+lang = S.lang;
+if (window.matchMedia && matchMedia('(prefers-contrast: more)').matches && S.contrast === 'off') S.contrast = 'on';
+applyAppearance();
+applyLang();
+if (synth) { loadVoices(); synth.onvoiceschanged = loadVoices; }
+else setStatus('st_nosupport', [], 'warn');
+</script>
+</body>
+</html>
